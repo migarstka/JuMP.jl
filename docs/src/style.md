@@ -387,7 +387,9 @@ end)
 module SomeModule end
 function some_function end
 const SOME_CONSTANT = ...
-struct SomeStruct end
+struct SomeStruct
+  some_field::SomeType
+end
 @enum SomeEnum ENUM_VALUE_A ENUM_VALUE_B
 some_local_variable = ...
 some_file.jl # Except for ModuleName.jl.
@@ -461,6 +463,7 @@ Use abbreviations consistently within a body of code (e.g., do not mix
 Common abbreviations:
 
 - `num` for `number`
+- `con` for `constraint`
 
 TODO: add more
 

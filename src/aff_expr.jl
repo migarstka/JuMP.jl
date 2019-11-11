@@ -17,9 +17,12 @@
 
 # Utilities for OrderedDict
 function _add_or_set!(dict::OrderedDict{K,V}, k::K, v::V) where {K,V}
+    # Adding zero terms to this dictionary leads to unacceptable performance
+    # degradations. See, e.g., https://github.com/JuliaOpt/JuMP.jl/issues/1946.
+    if iszero(v)
+        return dict  # No-op.
+    end
     # TODO: This unnecessarily requires two lookups for k.
-    # TODO: Decide if we want to drop zeros here after understanding the
-    # performance implications.
     dict[k] = get!(dict, k, zero(V)) + v
     return dict
 end
@@ -290,6 +293,13 @@ end
 
 Base.convert(::Type{GenericAffExpr{T,V}}, v::V)    where {T,V} = GenericAffExpr(zero(T), v => one(T))
 Base.convert(::Type{GenericAffExpr{T,V}}, v::Real) where {T,V} = GenericAffExpr{T,V}(convert(T, v))
+# Used in `JuMP._mul!`.
+function Base.convert(::Type{T}, aff::GenericAffExpr{T}) where T
+    if !isempty(aff.terms)
+        throw(InexactError(:convert, T, aff))
+    end
+    return convert(T, aff.constant)
+end
 
 # Alias for (Float64, VariableRef), the specific GenericAffExpr used by JuMP
 const AffExpr = GenericAffExpr{Float64,VariableRef}

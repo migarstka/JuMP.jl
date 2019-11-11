@@ -324,7 +324,7 @@ return a `DenseAxisArray`. For example:
 ```jldoctest variables_jump_arrays; setup=:(model=Model())
 julia> @variable(model, x[1:2, [:A,:B]])
 2-dimensional DenseAxisArray{VariableRef,2,...} with index sets:
-    Dimension 1, 1:2
+    Dimension 1, Base.OneTo(2)
     Dimension 2, Symbol[:A, :B]
 And data, a 2×2 Array{VariableRef,2}:
  x[1,A]  x[1,B]
@@ -371,7 +371,7 @@ For example, this applies when indices have a dependence upon previous
 indices (called *triangular indexing*). JuMP supports this as follows:
 ```jldoctest; setup=:(model=Model())
 julia> @variable(model, x[i=1:2, j=i:2])
-JuMP.Containers.SparseAxisArray{VariableRef,2,Tuple{Any,Any}} with 3 entries:
+JuMP.Containers.SparseAxisArray{VariableRef,2,Tuple{Int64,Int64}} with 3 entries:
   [1, 2]  =  x[1,2]
   [2, 2]  =  x[2,2]
   [1, 1]  =  x[1,1]
@@ -382,7 +382,7 @@ syntax appends a comparison check that depends upon the named indices and is
 separated from the indices by a semi-colon (`;`). For example:
 ```jldoctest; setup=:(model=Model())
 julia> @variable(model, x[i=1:4; mod(i, 2)==0])
-JuMP.Containers.SparseAxisArray{VariableRef,1,Tuple{Any}} with 2 entries:
+JuMP.Containers.SparseAxisArray{VariableRef,1,Tuple{Int64}} with 2 entries:
   [4]  =  x[4]
   [2]  =  x[2]
 ```
@@ -636,6 +636,30 @@ julia> start_value(y)
     ```julia
     set_start_value.(all_variables(model), value.(all_variables(model)))
     ```
+
+## [The `@variables` macro](@id variables)
+
+If you have many [`@variable`](@ref) calls, JuMP provides the macro `@variables`
+that can improve readability:
+
+```jldoctest; setup=:(model=Model())
+julia> @variables(model, begin
+           x
+           y[i=1:2] >= i, (start = i, base_name = "Y_$i")
+           z, Bin
+       end)
+
+julia> print(model)
+Feasibility
+Subject to
+ Y_1[1] ≥ 1.0
+ Y_2[2] ≥ 2.0
+ z binary
+```
+
+!!! note
+    Keyword arguments must be contained within parentheses. (See the example
+    above.)
 
 ## Reference
 

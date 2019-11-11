@@ -3,7 +3,7 @@ CurrentModule = JuMP
 DocTestSetup = quote
     using JuMP
 end
-DocTestFilters = [r"≤|<=", r"≥|>=", r" == | = ", r" ∈ | in "]
+DocTestFilters = [r"≤|<=", r"≥|>=", r" == | = ", r" ∈ | in ", r"MathOptInterface|MOI"]
 ```
 
 # Constraints
@@ -104,9 +104,26 @@ julia> @constraint(model, 2x + 1 <= 4x + 4)
 -2 x <= 3.0
 ```
 
+## The `@constraints` macro
+
+Like [`@variables`](@ref variables), there is a "plural" version of the
+[`@constraint`](@ref) macro:
+```jldoctest; setup=:(model=Model(); @variable(model, x))
+julia> @constraints(model, begin
+           2x <=  1
+            x >= -1
+       end)
+
+julia> print(model)
+Feasibility
+Subject to
+ x ≥ -1.0
+ 2 x ≤ 1.0
+```
+
 ## [Duality](@id constraint_duality)
 
-JuMP adopts the notion of [conic duality from MOI](http://www.juliaopt.org/MathOptInterface.jl/v0.8.1/apimanual.html#Duals-1).
+JuMP adopts the notion of [conic duality from MOI](http://www.juliaopt.org/MathOptInterface.jl/v0.9.1/apimanual/#Duals-1).
 For linear programs, a feasible dual on a `>=` constraint is nonnegative and a
 feasible dual on a `<=` constraint is nonpositive. If the constraint is an
 equality constraint, it depends on which direction is binding.
@@ -138,12 +155,10 @@ false
 ```@meta
 DocTestSetup = quote
     using JuMP
-    model = Model(
-        with_optimizer(
-            MOI.Utilities.MockOptimizer,
-            JuMP._MOIModel{Float64}(),
-            eval_objective_value = false,
-            eval_variable_constraint_dual = false));
+    model = Model(() -> MOIU.MockOptimizer(
+                            MOIU.Model{Float64}(),
+                            eval_objective_value = false,
+                            eval_variable_constraint_dual = false));
     @variable(model, x);
     @constraint(model, con, x <= 1);
     @objective(model, Max, -2x);
@@ -234,7 +249,7 @@ following.
 One way of adding a group of constraints compactly is the following:
 ```jldoctest constraint_arrays; setup=:(model=Model(); @variable(model, x))
 julia> @constraint(model, con[i = 1:3], i * x <= i + 1)
-3-element Array{ConstraintRef{Model,C,Shape} where Shape<:AbstractShape where C,1}:
+3-element Array{ConstraintRef{Model,MathOptInterface.ConstraintIndex{MathOptInterface.ScalarAffineFunction{Float64},MathOptInterface.LessThan{Float64}},ScalarShape},1}:
  con[1] : x <= 2.0
  con[2] : 2 x <= 3.0
  con[3] : 3 x <= 4.0
@@ -247,7 +262,7 @@ julia> con[1]
 con[1] : x <= 2.0
 
 julia> con[2:3]
-2-element Array{ConstraintRef{Model,C,Shape} where Shape<:AbstractShape where C,1}:
+2-element Array{ConstraintRef{Model,MathOptInterface.ConstraintIndex{MathOptInterface.ScalarAffineFunction{Float64},MathOptInterface.LessThan{Float64}},ScalarShape},1}:
  con[2] : 2 x <= 3.0
  con[3] : 3 x <= 4.0
 ```
@@ -256,7 +271,7 @@ Anonymous containers can also be constructed by dropping the name (e.g. `con`)
 before the square brackets:
 ```jldoctest constraint_arrays
 julia> @constraint(model, [i = 1:2], i * x <= i + 1)
-2-element Array{ConstraintRef{Model,C,Shape} where Shape<:AbstractShape where C,1}:
+2-element Array{ConstraintRef{Model,MathOptInterface.ConstraintIndex{MathOptInterface.ScalarAffineFunction{Float64},MathOptInterface.LessThan{Float64}},ScalarShape},1}:
  x <= 2.0
  2 x <= 3.0
 ```
@@ -277,10 +292,10 @@ variables.
 
 ```jldoctest constraint_jumparrays; setup=:(model=Model(); @variable(model, x))
 julia> @constraint(model, con[i = 1:2, j = 2:3], i * x <= j + 1)
-2-dimensional DenseAxisArray{ConstraintRef{Model,C,Shape} where Shape<:AbstractShape where C,2,...} with index sets:
-    Dimension 1, 1:2
+2-dimensional DenseAxisArray{ConstraintRef{Model,MathOptInterface.ConstraintIndex{MathOptInterface.ScalarAffineFunction{Float64},MathOptInterface.LessThan{Float64}},ScalarShape},2,...} with index sets:
+    Dimension 1, Base.OneTo(2)
     Dimension 2, 2:3
-And data, a 2×2 Array{ConstraintRef{Model,C,Shape} where Shape<:AbstractShape where C,2}:
+And data, a 2×2 Array{ConstraintRef{Model,MathOptInterface.ConstraintIndex{MathOptInterface.ScalarAffineFunction{Float64},MathOptInterface.LessThan{Float64}},ScalarShape},2}:
  con[1,2] : x <= 3.0    con[1,3] : x <= 4.0
  con[2,2] : 2 x <= 3.0  con[2,3] : 2 x <= 4.0
 ```
@@ -294,7 +309,7 @@ similar to the [syntax for constructing](@ref variable_sparseaxisarrays) a
 
 ```jldoctest constraint_jumparrays; setup=:(model=Model(); @variable(model, x))
 julia> @constraint(model, con[i = 1:2, j = 1:2; i != j], i * x <= j + 1)
-JuMP.Containers.SparseAxisArray{ConstraintRef{Model,C,Shape} where Shape<:AbstractShape where C,2,Tuple{Any,Any}} with 2 entries:
+JuMP.Containers.SparseAxisArray{ConstraintRef{Model,MathOptInterface.ConstraintIndex{MathOptInterface.ScalarAffineFunction{Float64},MathOptInterface.LessThan{Float64}},ScalarShape},2,Tuple{Int64,Int64}} with 2 entries:
   [1, 2]  =  con[1,2] : x <= 3.0
   [2, 1]  =  con[2,1] : 2 x <= 2.0
 ```
@@ -350,13 +365,13 @@ julia> @constraint(model, A * x - b in MOI.Nonnegatives(2))
 
 In addition to the `Nonnegatives` set, MOI defines a number of
 other vector-valued sets such as `Nonpositives`. See the
-[MOI documentation](http://www.juliaopt.org/MathOptInterface.jl/v0.8.1/apireference/#Sets-1)
+[MOI documentation](http://www.juliaopt.org/MathOptInterface.jl/v0.9.1/apireference/#Sets-1)
 for more information.
 
 Note also that for the first time we have used an explicit *function-in-set*
 description of the constraint. Read more about this representation for
 constraints in the
-[MOI documentation](http://www.juliaopt.org/MathOptInterface.jl/v0.8.1/apimanual/#Constraints-by-function-set-pairs-1).
+[MOI documentation](http://www.juliaopt.org/MathOptInterface.jl/v0.9.1/apimanual/#Constraints-by-function-set-pairs-1).
 
 ## Constraints on a single variable
 
@@ -440,7 +455,7 @@ julia> @constraint(model, [t, u, x[1], x[2]] in RotatedSecondOrderCone())
 
 In addition to the second order cone and rotated second order cone,
 MOI defines a number of other conic sets such as the exponential
-and power cones. See the [MathOptInterface documentation](http://www.juliaopt.org/MathOptInterface.jl/v0.8.1/apireference/#Sets-1)
+and power cones. See the [MathOptInterface documentation](http://www.juliaopt.org/MathOptInterface.jl/v0.9.1/apireference/#Sets-1)
 for more information.
 
 ## Constraints on a collection of variables
@@ -547,20 +562,20 @@ model with different coefficients.
 
 ### Modifying a constant term
 
-Use [`set_standard_form_rhs`](@ref) to modify the right-hand side (constant)
-term of a constraint. Use [`standard_form_rhs`](@ref) to query the right-hand
+Use [`set_normalized_rhs`](@ref) to modify the right-hand side (constant)
+term of a constraint. Use [`normalized_rhs`](@ref) to query the right-hand
 side term.
 
 ```jldoctest con_fix; setup = :(model = Model(); @variable(model, x))
 julia> @constraint(model, con, 2x <= 1)
 con : 2 x <= 1.0
 
-julia> set_standard_form_rhs(con, 3)
+julia> set_normalized_rhs(con, 3)
 
 julia> con
 con : 2 x <= 3.0
 
-julia> standard_form_rhs(con)
+julia> normalized_rhs(con)
 3.0
 ```
 
@@ -574,7 +589,7 @@ julia> standard_form_rhs(con)
     ```julia
     @constraint(model, 2x <= 3)
     ```
-    [`set_standard_form_rhs`](@ref) sets the right-hand side term of the
+    [`set_normalized_rhs`](@ref) sets the right-hand side term of the
     normalized constraint.
 
 If constraints are complicated, e.g., they are composed of a number of
@@ -603,22 +618,51 @@ The constraint `con` is now equivalent to `2x <= 2`.
     `const_term * x` is bilinear. Fixed variables are not replaced with
     constants when communicating the problem to a solver.
 
-### Modifying a variable coefficient
-
-To modify the scalar coefficients of a cosntraint (but notably *not yet* the
-quadratic coefficients), use [`set_standard_form_coefficient`](@ref). To query
-the current coefficient, use [`standard_form_coefficient`](@ref).
-```jldoctest; setup = :(model = Model(); @variable(model, x))
+Another option is to use [`add_to_function_constant`](@ref). The constant given
+is added to the function of a `func`-in-`set` constraint. In the following
+example, adding `2` to the function has the effect of removing `2` to the
+right-hand side:
+```jldoctest con_add; setup = :(model = Model(); @variable(model, x))
 julia> @constraint(model, con, 2x <= 1)
 con : 2 x <= 1.0
 
-julia> set_standard_form_coefficient(con, x, 3)
+julia> add_to_function_constant(con, 2)
 
 julia> con
-con : 3 x <= 1.0
+con : 2 x <= -1.0
 
-julia> standard_form_coefficient(con, x)
-3.0
+julia> normalized_rhs(con)
+-1.0
+```
+
+In the case of interval constraints, the constant is removed in each bounds.
+```jldoctest con_add_interval; setup = :(model = Model(); @variable(model, x))
+julia> @constraint(model, con, 0 <= 2x + 1 <= 2)
+con : 2 x ∈ [-1.0, 1.0]
+
+julia> add_to_function_constant(con, 3)
+
+julia> con
+con : 2 x ∈ [-4.0, -2.0]
+```
+
+### Modifying a variable coefficient
+
+To modify the coefficients for a linear term in a constraint (but
+notably not yet the coefficients on a quadratic term), use
+[`set_normalized_coefficient`](@ref). To query
+the current coefficient, use [`normalized_coefficient`](@ref).
+```jldoctest; setup = :(model = Model(); @variable(model, x[1:2]))
+julia> @constraint(model, con, 2x[1] + x[2] <= 1)
+con : 2 x[1] + x[2] ≤ 1.0
+
+julia> set_normalized_coefficient(con, x[2], 0)
+
+julia> con
+con : 2 x[1] ≤ 1.0
+
+julia> normalized_coefficient(con, x[2])
+0.0
 ```
 
 !!! note
@@ -631,7 +675,7 @@ julia> standard_form_coefficient(con, x)
     ```julia
     @constraint(model, 3x <= 1)
     ```
-    [`set_standard_form_coefficient`](@ref) sets the coefficient of the
+    [`set_normalized_coefficient`](@ref) sets the coefficient of the
     normalized constraint.
 
 ## Constraint deletion
@@ -671,9 +715,9 @@ julia> @constraint(model, x[1] + x[2] <= 1);
 
 julia> list_of_constraint_types(model)
 3-element Array{Tuple{DataType,DataType},1}:
- (VariableRef, MathOptInterface.Integer)
- (VariableRef, MathOptInterface.GreaterThan{Float64})
  (GenericAffExpr{Float64,VariableRef}, MathOptInterface.LessThan{Float64})
+ (VariableRef, MathOptInterface.GreaterThan{Float64})
+ (VariableRef, MathOptInterface.Integer)
 
 julia> num_constraints(model, VariableRef, MOI.Integer)
 2
@@ -718,10 +762,11 @@ SecondOrderCone
 RotatedSecondOrderCone
 PSDCone
 shadow_price
-standard_form_coefficient
-set_standard_form_coefficient
-standard_form_rhs
-set_standard_form_rhs
+normalized_coefficient
+set_normalized_coefficient
+normalized_rhs
+set_normalized_rhs
+add_to_function_constant
 is_valid
 JuMP.delete
 LowerBoundRef

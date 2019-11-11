@@ -195,12 +195,14 @@ function constraints_test(ModelType::Type{<:JuMP.AbstractModel},
         @variable m x[1:2]
         @constraint m cref1[i=2:4] x .== [i, i+1]
         ConstraintRefType = eltype(cref1[2])
-        @test cref1 isa JuMP.Containers.DenseAxisArray{AbstractArray{ConstraintRefType}}
+        @test cref1 isa JuMP.Containers.DenseAxisArray{Vector{ConstraintRefType}}
         @constraint m cref2[i=1:3, j=1:4] x .≤ [i+j, i-j]
-        @test cref2 isa Matrix{AbstractArray{ConstraintRefType}}
+        ConstraintRefType = eltype(cref2[1])
+        @test cref2 isa Matrix{Vector{ConstraintRefType}}
         @variable m y[1:2, 1:2]
-        @constraint m cref3[i=1:2] x[i,:] .== 1
-        @test cref3 isa Vector{AbstractArray{ConstraintRefType}}
+        @constraint m cref3[i=1:2] y[i,:] .== 1
+        ConstraintRefType = eltype(cref3[1])
+        @test cref3 isa Vector{Vector{ConstraintRefType}}
     end
 
     @testset "QuadExpr constraints" begin
@@ -357,14 +359,14 @@ function constraints_test(ModelType::Type{<:JuMP.AbstractModel},
     end
 
     @testset "[macros] sum(generator)" begin
-        m = ModelType()
-        @variable(m, x[1:3,1:3])
-        @variable(m, y)
+        model = ModelType()
+        @variable(model, x[1:3,1:3])
+        @variable(model, y)
         C = [1 2 3; 4 5 6; 7 8 9]
 
         @test_expression sum( C[i,j]*x[i,j] for i in 1:2, j = 2:3 )
         @test_expression sum( C[i,j]*x[i,j] for i = 1:3, j in 1:3 if i != j) - y
-        @test JuMP.isequal_canonical(@expression(m, sum( C[i,j]*x[i,j] for i = 1:3, j = 1:i)),
+        @test JuMP.isequal_canonical(@expression(model, sum( C[i,j]*x[i,j] for i = 1:3, j = 1:i)),
                                                     sum( C[i,j]*x[i,j] for i = 1:3 for j = 1:i))
         @test_expression sum( C[i,j]*x[i,j] for i = 1:3 for j = 1:i)
         @test_expression sum( C[i,j]*x[i,j] for i = 1:3 if true for j = 1:i)
@@ -468,15 +470,15 @@ end
         model = JuMP.Model()
         x = @variable(model)
         con_ref = @constraint(model, 2 * x == -1)
-        @test JuMP.standard_form_coefficient(con_ref, x) == 2.0
-        JuMP.set_standard_form_coefficient(con_ref, x, 1.0)
-        @test JuMP.standard_form_coefficient(con_ref, x) == 1.0
-        JuMP.set_standard_form_coefficient(con_ref, x, 3)  # Check type promotion.
-        @test JuMP.standard_form_coefficient(con_ref, x) == 3.0
+        @test JuMP.normalized_coefficient(con_ref, x) == 2.0
+        JuMP.set_normalized_coefficient(con_ref, x, 1.0)
+        @test JuMP.normalized_coefficient(con_ref, x) == 1.0
+        JuMP.set_normalized_coefficient(con_ref, x, 3)  # Check type promotion.
+        @test JuMP.normalized_coefficient(con_ref, x) == 3.0
         quad_con = @constraint(model, x^2 == 0)
-        @test JuMP.standard_form_coefficient(quad_con, x) == 0.0
-        JuMP.set_standard_form_coefficient(quad_con, x, 2)
-        @test JuMP.standard_form_coefficient(quad_con, x) == 2.0
+        @test JuMP.normalized_coefficient(quad_con, x) == 0.0
+        JuMP.set_normalized_coefficient(quad_con, x, 2)
+        @test JuMP.normalized_coefficient(quad_con, x) == 2.0
         @test JuMP.isequal_canonical(
             JuMP.constraint_object(quad_con).func, x^2 + 2x)
     end
@@ -485,25 +487,52 @@ end
         model = JuMP.Model()
         x = @variable(model)
         con_ref = @constraint(model, 2 * x <= 1)
-        @test JuMP.standard_form_rhs(con_ref) == 1.0
-        JuMP.set_standard_form_rhs(con_ref, 2.0)
-        @test JuMP.standard_form_rhs(con_ref) == 2.0
+        @test JuMP.normalized_rhs(con_ref) == 1.0
+        JuMP.set_normalized_rhs(con_ref, 2.0)
+        @test JuMP.normalized_rhs(con_ref) == 2.0
         con_ref = @constraint(model, 2 * x - 1 == 1)
-        @test JuMP.standard_form_rhs(con_ref) == 2.0
-        JuMP.set_standard_form_rhs(con_ref, 3)
-        @test JuMP.standard_form_rhs(con_ref) == 3.0
+        @test JuMP.normalized_rhs(con_ref) == 2.0
+        JuMP.set_normalized_rhs(con_ref, 3)
+        @test JuMP.normalized_rhs(con_ref) == 3.0
         con_ref = @constraint(model, 0 <= 2 * x <= 1)
-        @test_throws MethodError JuMP.set_standard_form_rhs(con_ref, 3)
+        @test_throws MethodError JuMP.set_normalized_rhs(con_ref, 3)
     end
+
+    @testset "Add to function constant" begin
+        model = JuMP.Model()
+        x = @variable(model)
+        @testset "Scalar" begin
+            con_ref = @constraint(model, 2 <= 2 * x <= 3)
+            con = constraint_object(con_ref)
+            @test JuMP.isequal_canonical(JuMP.jump_function(con), 2x)
+            @test JuMP.moi_set(con) == MOI.Interval(2.0, 3.0)
+            JuMP.add_to_function_constant(con_ref, 1.0)
+            con = constraint_object(con_ref)
+            @test JuMP.isequal_canonical(JuMP.jump_function(con), 2x)
+            @test JuMP.moi_set(con) == MOI.Interval(1.0, 2.0)
+        end
+        @testset "Vector" begin
+            con_ref = @constraint(model, [x + 1, x - 1] in MOI.Nonnegatives(2))
+            con = constraint_object(con_ref)
+            @test JuMP.isequal_canonical(JuMP.jump_function(con), [x + 1, x - 1])
+            @test JuMP.moi_set(con) == MOI.Nonnegatives(2)
+            JuMP.add_to_function_constant(con_ref, [2, 3])
+            con = constraint_object(con_ref)
+            @test JuMP.isequal_canonical(JuMP.jump_function(con), [x + 3, x + 2])
+            @test JuMP.moi_set(con) == MOI.Nonnegatives(2)
+        end
+    end
+
 end
 
 function test_shadow_price(model_string, constraint_dual, constraint_shadow)
     model = JuMP.Model()
     MOIU.loadfromstring!(JuMP.backend(model), model_string)
-    JuMP.optimize!(model, with_optimizer(MOIU.MockOptimizer,
-                                         JuMP._MOIModel{Float64}(),
-                                         eval_objective_value=false,
-                                         eval_variable_constraint_dual=false))
+    set_optimizer(model, () -> MOIU.MockOptimizer(
+                                MOIU.Model{Float64}(),
+                                eval_objective_value=false,
+                                eval_variable_constraint_dual=false))
+    JuMP.optimize!(model)
     mock_optimizer = JuMP.backend(model).optimizer.model
     MOI.set(mock_optimizer, MOI.TerminationStatus(), MOI.OPTIMAL)
     MOI.set(mock_optimizer, MOI.DualStatus(), MOI.FEASIBLE_POINT)
